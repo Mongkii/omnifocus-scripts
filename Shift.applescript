@@ -6,12 +6,12 @@
 	Depending on the script settings (see below), this will shift
 	
 	a) just the due date or
-	b) both the start and due dates (useful for skipping weekends for daily recurring tasks)
+	b) both the Start & Due dates (useful for skipping weekends for daily recurring tasks)
 	
 	
 	# LICENSE #
 
-	Copyright © 2008-2017 Dan Byler (contact: dbyler@gmail.com)
+	Copyright Â© 2008-2017 Dan Byler (contact: dbyler@gmail.com)
 	Licensed under MIT License (http://www.opensource.org/licenses/mit-license.php)
 	(TL;DR: no warranty, do whatever you want with it.)
 	
@@ -45,12 +45,12 @@
 	-	Changed default promptForChangeScope to False
 	
 	0.5 (2011-07-14)
-	-	Now warns for mismatches between "actual" and "effective" Start and Due dates. Such mismatches 
+	-	Now warns for mismatches between "actual" and "effective" Start & Due dates. Such mismatches 
 		occur if a parent or ancestor item has an earlier Due date (or later Start date) than the selected item.
 		This warning can be suppressed by setting "warnOnDateMismatch" property to "false".
 
 	-	New "promptForChangeScope" setting lets users bypass the second dialog box if they always change
-		the same parameters (Start AND Due dates, or just Due dates). Default setting: enabled.
+		the same parameters (Start & Due dates, or just Due dates). Default setting: enabled.
 	
 	0.4 (2011-07-07)
 	-	New option to set start time (Default: 8am)
@@ -73,7 +73,7 @@
 		-	Incorporated Curt Clifton's bug fixes to make script more reliable when dealing with multiple items.
 			Thanks, Curt!
 		-	Added some error suppression to deal with deferring from Context mode
-		-	Defers both start and due dates by default.
+		-	Defers both Start & Due dates by default.
 		-	Incorporates new method that doesn't call Growl directly. This code should be friendly for machines
 			that don't have Growl installed. In my testing, I found that GrowlHelperApp crashes on nearly 10%
 			of AppleScript calls, so the script checks for GrowlHelperApp and launches it if not running. (Thanks 
@@ -87,20 +87,20 @@
 *)
 
 -- To change settings, modify the following properties
-property snoozeUnscheduledItems : false --if True, when deferring Start AND Due dates, will set start date to given # of days in the future
+property snoozeUnscheduledItems : false --if True, when deferring Start & Due dates, will set start date to given # of hours in the future
 property showSummaryNotification : true --if true, will display success notifications
-property useGrowl : true --if true, will use Growl for success/failure alerts
-property defaultOffset : 1 --number of days to defer by default
-property defaultStartTime : 6 --default time to use (in hours, 24-hr clock)
+property useGrowl : false --if true, will use Growl for success/failure alerts
+property defaultOffset : 24 --number of hours to defer by default
+property defaultStartTime : 7 --default time to use (in hours, 24-hr clock)
 property warnOnDateMismatch : true --if True, warns you if there's a mismatch between a deferred item's actual and effective Due date. An effective due date is set by a parent task or project.
 
---If you always want to change the same type of information--(Start AND Due dates) OR (Just Due dates)--change promptForChangeScope to false
-property promptForChangeScope : false
-property changeScope : "Start and Due" --options: "Start and Due", "Due Only", "Start Only"
+--If you always want to change the same type of information--(Start & Due dates) OR (Just Due dates)--change promptForChangeScope to false
+--property promptForChangeScope : true
+property changeScope : "Start & Due" --options: "Start & Due", "Due Only", "Start Only"
 
 -- Don't change these
 property alertItemNum : ""
-property alertDayNum : ""
+property alertHourNum : ""
 property growlAppName : "Dan's Scripts"
 property allNotifications : {"General", "Error"}
 property enabledNotifications : {"General", "Error"}
@@ -123,17 +123,30 @@ on main(q)
 			--User options
 			set res to q
 			if res is missing value then
-				display dialog "Defer for how many days (from existing)?" default answer defaultOffset buttons {"Cancel", "OK"} default button 2
+				set changeScopeQuery to display dialog "Adjust how many hours? (+/-)" default answer defaultOffset buttons {"Cancel", "Start & Due", "Due Only"} Â¬
+					default button 3 with icon caution giving up after 60
 				set res to (the text returned of the result)
+				set changeScope to button returned of changeScopeQuery
+				if changeScope is "Cancel" then return
+				if changeScope is "Start & Due" then
+					set modifyStartDate to true
+					set modifyDueDate to true
+				else if changeScope is "Due Only" then
+					set modifyStartDate to false
+					set modifyDueDate to true
+				else if changeScope is "Start Only" then
+					set modifyStartDate to true
+					set modifyDueDate to false
+				end if
 			end if
 			try
-				set daysOffset to res as integer
-				if daysOffset as real is not res as real then
-					set daysOffset to res as real
+				set hoursOffset to res as integer
+				if hoursOffset as real is not res as real then
+					set hoursOffset to res as real
 				end if
 			on error
 				try
-					set daysOffset to (run script res) as real
+					set hoursOffset to (run script res) as real
 				on error
 					set alertName to "Error"
 					set alertTitle to "Script failure"
@@ -142,29 +155,13 @@ on main(q)
 					return
 				end try
 			end try
-			if promptForChangeScope then
-				set changeScopeQuery to display dialog "Modify start and due dates?" buttons {"Cancel", "Due Only", "Start and Due"} Â
-					default button 3 with icon caution giving up after 60
-				set changeScope to button returned of changeScopeQuery
-				if changeScope is "Cancel" then return
-			end if
-			if changeScope is "Start and Due" then
-				set modifyStartDate to true
-				set modifyDueDate to true
-			else if changeScope is "Due Only" then
-				set modifyStartDate to false
-				set modifyDueDate to true
-			else if changeScope is "Start Only" then
-				set modifyStartDate to true
-				set modifyDueDate to false
-			end if
 			
 			--Perform action
 			set successTot to 0
 			set autosave to false
 			set todayStart to (current date) - (get time of (current date)) + (defaultStartTime * 3600)
 			repeat with thisItem in validSelectedItemsList
-				set succeeded to my defer(thisItem, daysOffset, modifyStartDate, modifyDueDate, todayStart)
+				set succeeded to my defer(thisItem, hoursOffset, modifyStartDate, modifyDueDate, todayStart)
 				if succeeded then set successTot to successTot + 1
 			end repeat
 			set autosave to true
@@ -175,14 +172,14 @@ on main(q)
 	if showSummaryNotification then
 		set alertName to "General"
 		set alertTitle to "Script complete"
-		if daysOffset is not 1 then set alertDayNum to "s"
+		if hoursOffset is not 1 then set alertHourNum to "s"
 		if successTot > 1 then set alertItemNum to "s"
-		set alertText to successTot & " item" & alertItemNum & " deferred " & daysOffset & " day" & alertDayNum & ". (" & changeScope & ")" as string
+		set alertText to successTot & " item" & alertItemNum & " adjusted " & hoursOffset & " hour" & alertHourNum & ". (" & changeScope & ")" as string
 		my notify(alertName, alertTitle, alertText)
 	end if
 end main
 
-on defer(selectedItem, daysOffset, modifyStartDate, modifyDueDate, todayStart)
+on defer(selectedItem, hoursOffset, modifyStartDate, modifyDueDate, todayStart)
 	set success to false
 	tell application "OmniFocus"
 		try
@@ -192,13 +189,13 @@ on defer(selectedItem, daysOffset, modifyStartDate, modifyDueDate, todayStart)
 			set {dueAncestor, effectiveDueDate} to my getEffectiveDueDate(selectedItem, due date of selectedItem)
 			if modifyStartDate then
 				if (realStartDate is not missing value) then --There's a preexisting start date
-					set defer date of selectedItem to my offsetDateByDays(realStartDate, daysOffset)
+					set defer date of selectedItem to my offsetDateByHours(realStartDate, hoursOffset)
 					set success to true
 					if warnOnDateMismatch then
 						if realStartDate is not effectiveStartDate then
-							set alertText to "Ç" & (name of contents of selectedItem) & Â
-								"È has a later effective start date inherited from Ç" & (name of contents of dueAncestor) & Â
-								"È. The latter has not been changed."
+							set alertText to "Â«" & (name of contents of selectedItem) & Â¬
+								"Â» has a later effective start date inherited from Â«" & (name of contents of dueAncestor) & Â¬
+								"Â». The latter has not been changed."
 							my notifyWithSticky("Error", "Possible Start Date Mismatch", alertText)
 						end if
 					end if
@@ -206,21 +203,21 @@ on defer(selectedItem, daysOffset, modifyStartDate, modifyDueDate, todayStart)
 			end if
 			if (realDueDate is not missing value) then --There's a preexisting due date
 				if modifyDueDate then
-					set due date of selectedItem to my offsetDateByDays(realDueDate, daysOffset)
+					set due date of selectedItem to my offsetDateByHours(realDueDate, hoursOffset)
 					set success to true
 				end if
 				if realDueDate is not effectiveDueDate then --alert if there's a different effective date
 					--				contents of selectedItem
 					if modifyDueDate and warnOnDateMismatch then
-						set alertText to "Ç" & (name of contents of selectedItem) & Â
-							"È has an earlier effective due date inherited from Ç" & (name of contents of dueAncestor) & Â
-							"È. The latter has not been changed."
+						set alertText to "Â«" & (name of contents of selectedItem) & Â¬
+							"Â» has an earlier effective due date inherited from Â«" & (name of contents of dueAncestor) & Â¬
+							"Â». The latter has not been changed."
 						my notifyWithSticky("Error", "Possible Due Date Mismatch", alertText)
 					end if
 				end if
 			else if snoozeUnscheduledItems then
 				if defer date of selectedItem is missing value then
-					set defer date of selectedItem to my offsetDateByDays(todayStart, daysOffset)
+					set defer date of selectedItem to my offsetDateByHours(todayStart, hoursOffset)
 					set success to true
 				end if
 			end if
@@ -265,9 +262,9 @@ on getEffectiveStartDate(thisItem, effectiveStartDate)
 	return {startAncestor, effectiveStartDate}
 end getEffectiveStartDate
 
-on offsetDateByDays(myDate, daysOffset)
-	return myDate + (86400 * daysOffset)
-end offsetDateByDays
+on offsetDateByHours(myDate, hoursOffset)
+	return myDate + (3600 * hoursOffset)
+end offsetDateByHours
 
 
 (* Begin notification code *)
@@ -288,8 +285,8 @@ end IsGrowlRunning
 
 on notifyWithGrowl(growlHelperAppName, alertName, alertTitle, alertText, useSticky)
 	tell my application growlHelperAppName
-		Çevent registerÈ given Çclass applÈ:growlAppName, Çclass anotÈ:allNotifications, Çclass dnotÈ:enabledNotifications, Çclass iappÈ:iconApplication
-		Çevent notifygrÈ given Çclass nameÈ:alertName, Çclass titlÈ:alertTitle, Çclass applÈ:growlAppName, Çclass descÈ:alertText
+		Â«event registerÂ» given Â«class applÂ»:growlAppName, Â«class anotÂ»:allNotifications, Â«class dnotÂ»:enabledNotifications, Â«class iappÂ»:iconApplication
+		Â«event notifygrÂ» given Â«class nameÂ»:alertName, Â«class titlÂ»:alertTitle, Â«class applÂ»:growlAppName, Â«class descÂ»:alertText
 	end tell
 end notifyWithGrowl
 
